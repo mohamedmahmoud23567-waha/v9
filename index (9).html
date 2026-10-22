@@ -1,0 +1,274 @@
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>أوامر الشغل</title>
+<style>
+:root{--bg:#f6f7f9;--c:#fff;--t:#1d2430;--b:#d9dde3;--p:#1f6feb;--r:#fde8e8;--rb:#d93025}
+@media(prefers-color-scheme:dark){:root{--bg:#14171c;--c:#1e232b;--t:#e8ebf0;--b:#363d48;--r:#4a1f1f}}
+*{box-sizing:border-box}body{margin:0;font-family:Tahoma,Arial,sans-serif;background:var(--bg);color:var(--t)}
+header{display:flex;gap:8px;align-items:center;padding:10px 14px;background:var(--c);border-bottom:1px solid var(--b);flex-wrap:wrap}
+header b{flex:1}main{max-width:980px;margin:auto;padding:14px}
+button,input,select,textarea{font:inherit;padding:8px;border:1px solid var(--b);border-radius:8px;background:var(--c);color:var(--t)}
+button{cursor:pointer}.p{background:var(--p);color:#fff;border-color:var(--p)}
+.card{background:var(--c);border:1px solid var(--b);border-radius:10px;padding:12px;margin:8px 0}
+.late{background:var(--r);border:2px solid var(--rb)}.tag{font-size:12px;padding:2px 8px;border-radius:99px;border:1px solid var(--b)}
+.red{color:var(--rb);font-weight:bold}.g{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px}
+.g label{font-size:12px;display:block}.g input{width:100%}textarea{width:100%;min-height:90px}
+#m{position:fixed;inset:0;background:#0008;overflow:auto;display:none}#m>div{max-width:760px;margin:20px auto;background:var(--bg);padding:14px;border-radius:12px}
+.ph{display:flex;flex-wrap:wrap;gap:6px}.ph img{width:110px;height:110px;object-fit:cover;border-radius:8px}
+.soon{background:#fff6d6;border:2px solid #f0b400}@media(prefers-color-scheme:dark){.soon{background:#4a3d12}}.warn{color:#b07a00;font-weight:bold}
+</style></head><body><div id="app"></div><div id="m"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<script>
+const SB_URL='https://najxjhkckcyjyuvsrgtr.supabase.co',SB_KEY='sb_publishable_MZ1x42pKxiqTKH3-hT8mMA_6q3tYWnQ';
+const ALLOW_SIGNUP=false; /* true = المراكز تقدر تسجّل بنفسها */
+const sb=supabase.createClient(SB_URL,SB_KEY);pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const norm=t=>(t||'').trim().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/\s+/g,' ').toLowerCase();
+const late=o=>o.status!=='تم الانتهاء'&&o.visit_at&&new Date(o.visit_at)<new Date();
+const soon=o=>o.status!=='تم الانتهاء'&&o.visit_at&&!late(o)&&new Date(o.visit_at)-new Date()<864e5;const tl=x=>x?new Date(new Date(x)-new Date(x).getTimezoneOffset()*6e4).toISOString().slice(0,16):'';
+const fd=x=>x?new Date(x).toLocaleString('ar-EG',{dateStyle:'medium',timeStyle:'short'}):'-';
+let draft=null,parts=[],techs=[],allPh=[],me,profiles=[],orders=[],tab='list',rows=[];
+const F=[['swo','أمر التشغيل'],['svr','رقم الطلب'],['order_type','نوع الطلب'],['visit_at','الموعد','datetime-local'],['customer_name','العميل'],['customer_code','كود العميل'],['phone1','موبايل'],['phone2','موبايل 2'],['address','العنوان'],['product','المنتج'],['distance_m','المسافة (م)'],['center_name','المركز (القائم بالعمل)']];
+
+async function init(){const{data:{session}}=await sb.auth.getSession();if(!session)return login();
+ const{data}=await sb.from('profiles').select('*').eq('id',session.user.id).single();me=data;
+ if(!me||!me.approved)return $('#app').innerHTML='<main><div class="card">حسابك بانتظار موافقة الأدمن.</div><button onclick="out()">خروج</button></main>';
+ await load();if(me.role==='admin'){const{data:u}=await sb.rpc('storage_usage');if(u&&u.files>.8*1073741824)WARN='⚠ مساحة الصور وصلت '+Math.round(u.files/1048576)+' ميجا من 1024 — اعمل أرشفة من تاب إحصائيات'}shell()}
+function login(){$('#app').innerHTML=`<main><div class="card"><h3>دخول / تسجيل مركز</h3><div class="g">
+<input id="e" type="email" placeholder="الإيميل"><input id="pw" type="password" placeholder="كلمة السر">
+${ALLOW_SIGNUP?'<input id="cn" placeholder="اسم المركز (للتسجيل فقط، زي ما بيظهر في أمر الشغل)">':''}</div><p>
+<button class="p" onclick="auth(1)">دخول</button> ${ALLOW_SIGNUP?'<button onclick="auth(0)">تسجيل مركز جديد</button>':''} <button onclick="forgot()">نسيت الباسورد؟</button></p><div id="er" class="red"></div></div></main>`}
+async function auth(inn){if(!inn&&!ALLOW_SIGNUP)return;const e=$('#e').value,p=$('#pw').value;let r;
+ if(inn)r=await sb.auth.signInWithPassword({email:e,password:p});
+ else{const cn=$('#cn').value;if(!cn)return $('#er').textContent='اكتب اسم المركز';r=await sb.auth.signUp({email:e,password:p,options:{data:{center_name:cn}}})}
+ if(r.error)return $('#er').textContent=r.error.message;init()}
+async function out(){await sb.auth.signOut();login()}
+async function fetchAll(t,o){let r=[],i=0;for(;;){const{data}=await sb.from(t).select('*').order(o).order('id').range(i,i+999);r.push(...(data||[]));if(!data||data.length<1000)break;i+=1000}return r}
+async function load(){orders=await fetchAll('orders','visit_at');parts=await fetchAll('order_parts','created_at');allPh=await fetchAll('photos','created_at');techs=await fetchAll('technicians','name');
+ if(me.role==='admin')profiles=await fetchAll('profiles','email')}
+
+function shell(){const ad=me.role==='admin';$('#app').innerHTML=`<header><b>${ad?'لوحة الأدمن':esc(me.center_name)}</b>
+<button onclick="go('list')">البلاغات</button>${ad?'<button onclick="go(\'up\')">رفع أوامر</button><button onclick="go(\'cn\')">المراكز</button><button onclick="go(\'stats\')">إحصائيات</button>':''}<button onclick="chPw()">🔑 الباسورد</button><button onclick="out()">خروج</button></header><main id="v"></main>`;go(tab)}
+function go(t){if(me.role!=='admin')t='list';tab=t;({list:vList,up:vUp,cn:vCn,stats:vStats})[t]()}
+function vList(){const ad=me.role==='admin',n=orders.filter(late).length,w=orders.filter(soon).length;
+ $('#v').innerHTML=`${WARN?'<div class="card late"><b>'+WARN+'</b></div>':''}<div class="card ${n?'late':''}"><b>${n?'⚠ '+n+' بلاغ متأخر':'لا يوجد متأخر'}</b> ${w?' · <span class="warn">'+w+' خلال 24 ساعة</span>':''} من ${orders.length} بلاغ</div>
+<input id="q" placeholder="بحث..." oninput="draw()"> <select id="st" onchange="draw()"><option value="">كل الحالات</option><option>جديد</option><option>تم الانتهاء</option><option>له استكمال</option><option value="late">متأخر</option><option value="soon">قريب (24 ساعة)</option></select> ${ad?'<button onclick="expX()">⬇ تصدير Excel</button> <button onclick="purge()" style="color:#d93025">🧹 سحب المغلق ثم مسحه</button> أقدم من <input id="dd" type="number" min="0" value="0" style="width:60px"> يوم (0 = كل المغلق)':''}<div id="l"></div>`;draw()}
+function filt(){const q=$('#q').value.trim(),s=$('#st').value;return orders.filter(o=>(!s||(s==='late'?late(o):s==='soon'?soon(o):o.status===s))&&(!q||JSON.stringify(o).includes(q))).sort((a,b)=>late(b)-late(a))}
+function draw(){const q=$('#q').value.trim(),s=$('#st').value,ad=me.role==='admin',ok=new Set(profiles.filter(p=>p.approved).map(p=>p.center_norm));
+ const L=filt();
+ $('#l').innerHTML=L.map(o=>`<div class="card ${late(o)?'late':soon(o)?'soon':''}" onclick="openO('${o.id}')" style="cursor:pointer"><b>${esc(o.customer_name)}</b> <span class="tag">${esc(o.status)}</span>
+${late(o)?' <span class="red">متأخر</span>':soon(o)?' <span class="warn">قريب</span>':''}${o.visit_orig?' <span class="tag">مؤجل</span>':''}${parts.some(p=>p.order_id===o.id)?' <span class="tag">🔧 قطع غيار</span>':''}<br>${esc(o.order_type)} · ${esc(o.swo)} · ${fd(o.visit_at)}${o.tech_name?' · 👷 '+esc(o.tech_name):''}${ad?'<br>'+esc(o.center_name)+(ok.has(o.center_norm)?'':' <span class="red">(مركز غير مسجل)</span>'):''}</div>`).join('')||'<p>لا يوجد.</p>'}
+async function openO(id){const o=orders.find(x=>x.id===id),ad=me.role==='admin',dr=draft&&draft.id===id?draft:null,S=dr?dr.ss:o.status,R=dr?dr.rs:o.reason,T=dr?dr.tr:o.tech_report;draft=null;
+ const{data:ph}=await sb.from('photos').select('*').eq('order_id',id);
+ const{data:lg}=await sb.from('order_log').select('*').eq('order_id',id).order('at',{ascending:false});
+ const urls=await Promise.all((ph||[]).map(async p=>p.url||(await sb.storage.from('photos').createSignedUrl(p.path,3600)).data?.signedUrl||''));
+ const pdf=(await sb.storage.from('pdfs').createSignedUrl(o.pdf_path,3600)).data?.signedUrl;
+ $('#m').style.display='block';$('#m').innerHTML=`<div><button onclick="$('#m').style.display='none'">إغلاق ✕</button>
+<div class="card ${late(o)?'late':soon(o)?'soon':''}"><h3>${esc(o.customer_name)} ${late(o)?'<span class="red">متأخر</span>':''}</h3>
+${esc(o.order_type)} · ${esc(o.swo)} · ${esc(o.svr)}<br>الموعد: ${fd(o.visit_at)}${o.visit_orig?' <span class="tag">مؤجل — الأصلي: '+fd(o.visit_orig)+' — '+esc(o.postpone_reason)+'</span>':''}<br>العنوان: ${esc(o.address)}<br>
+📞 <a href="tel:${esc(o.phone1)}">${esc(o.phone1)}</a> ${o.phone2?'<a href="tel:'+esc(o.phone2)+'">'+esc(o.phone2)+'</a>':''}<br>المنتج: ${esc(o.product)}<br>
+${ad?'المركز: '+esc(o.center_name)+'<br>':''}${o.tech_name?'الفني: '+esc(o.tech_name)+'<br>':''}${pdf?'<a href="'+pdf+'" target="_blank">فتح أمر الشغل الأصلي (PDF)</a>':''}</div>
+${ad?TECH(o):''}${PARTS(o,ad)}<div class="card"><b>🔗 روابط صور البلاغ</b> <span class="tag">لازم رابط واحد على الأقل قبل الحفظ</span>${urls.map((u,i)=>`<div style="margin-top:4px">${i+1}. <a href="${esc(u)}" target="_blank" rel="noopener">${esc(u.length>60?u.slice(0,60)+'…':u)}</a> <button onclick="delL('${ph[i].id}','${id}')">✕</button></div>`).join('')}
+<p><textarea id="lk" style="min-height:60px" placeholder="الصق رابط الصور هنا (رابط في كل سطر) — Google Drive أو أي رابط يتفتح"></textarea> <button onclick="addL('${id}')">إضافة الروابط</button> <span id="lm" class="red"></span></p></div>
+<div class="card"><b>التقرير الفني</b><textarea id="tr" placeholder="إيه اللي حصل؟">${esc(T)}</textarea>
+<p><select id="ss" onchange="$('#rs').style.display=this.value==='له استكمال'?'':'none'"><option ${S==='جديد'?'selected':''}>جديد</option><option ${S==='تم الانتهاء'?'selected':''}>تم الانتهاء</option><option ${S==='له استكمال'?'selected':''}>له استكمال</option></select>
+<input id="rs" placeholder="سبب الاستكمال" value="${esc(R)}" style="${S==='له استكمال'?'':'display:none'}"></p>
+<button class="p" onclick="saveO('${id}')">حفظ</button> <span id="ms"></span></div>${ad?EDIT(o):POST(o)}${LOG(lg)}</div>`}
+async function saveO(id){const st=$('#ss').value,rs=st==='له استكمال'?$('#rs').value:'';
+ if(st==='له استكمال'&&!rs)return $('#ms').textContent='اكتب سبب الاستكمال';
+ const{count}=await sb.from('photos').select('id',{count:'exact',head:true}).eq('order_id',id);if(!count)return $('#ms').textContent='لازم تضيف رابط صور واحد على الأقل قبل الحفظ';
+ const{error}=await sb.from('orders').update({status:st,reason:rs,tech_report:$('#tr').value}).eq('id',id);
+ if(error)return $('#ms').textContent=error.message;await load();$('#m').style.display='none';go('list')}
+/* ---- رفع وقراءة PDF ---- */
+function vUp(){rows=[];$('#v').innerHTML=`<div class="card"><b>اختر ملف PDF أو أكثر (كل ملف = أمر شغل)</b><p><input type="file" id="f" accept="application/pdf" multiple onchange="readF(this.files)"></p></div><div id="r"></div><datalist id="cdl">${regCenters().map(([n,c])=>`<option value="${esc(c)}">`).join('')}</datalist><datalist id="tdl">${techs.map(t=>`<option value="${esc(t.name)}">`).join('')}</datalist>`}
+const GARB=/[\u02B0-\u02FF\u0370-\u03FF\u0100-\u017F]/;let OW=null;
+async function ocr(pg,items){
+ if(!OW){OW=await Tesseract.createWorker('ara');await OW.setParameters({tessedit_pageseg_mode:'6'})}
+ if(!pg.cv){const cv=document.createElement('canvas');cv.width=pg.vp.width;cv.height=pg.vp.height;await pg.page.render({canvasContext:cv.getContext('2d'),viewport:pg.vp}).promise;pg.cv=cv}
+ let x0=1e9,y0=1e9,x1=0,y1=0;
+ for(const e of items){const tx=pdfjsLib.Util.transform(pg.vp.transform,e.tm),h=Math.hypot(tx[2],tx[3]);x0=Math.min(x0,tx[4]);x1=Math.max(x1,tx[4]+e.w*pg.vp.scale);y0=Math.min(y0,tx[5]-h);y1=Math.max(y1,tx[5]+h*.3)}
+ const P=10,w=Math.round(x1-x0+2*P),h=Math.round(y1-y0+2*P),c=document.createElement('canvas');c.width=w;c.height=h;const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,w,h);g.drawImage(pg.cv,x0-P,y0-P,w,h,0,0,w,h);
+ const r=await OW.recognize(c);return r.data.text.replace(/[|_~`¦\[\]{}<>]/g,' ').replace(/\s+/g,' ').trim()}
+async function parse(file){const pdf=await pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise,PG={};let it=[];
+ for(let i=1;i<=pdf.numPages;i++){const page=await pdf.getPage(i);PG[i]={page,vp:page.getViewport({scale:3}),cv:null};const c=await page.getTextContent();
+  c.items.forEach(e=>{const s=e.str.normalize('NFKC').trim();if(s)it.push({s,x:e.transform[4]+(e.width||0)/2,y:Math.round(e.transform[5]),pg:i,tm:e.transform,w:e.width||0})})}
+ it.sort((p,q)=>q.y-p.y);const rows=[];
+ for(const e of it){const r=rows.find(r=>Math.abs(r.y-e.y)<=4);r?r.i.push(e):rows.push({y:e.y,i:[e]})}
+ rows.forEach(r=>r.i.sort((p,q)=>q.x-p.x));
+ const raw=rows.map(r=>r.i.map(e=>e.s).join(' | ')).join('\n'),t=raw.replace(/\s*\|\s*/g,' ').replace(/\s+/g,' ');
+ const m=r=>(t.match(r)||[])[1]||'',sp=x=>x.replace(/\s/g,''),tx=o=>o.map(e=>e.s).join(' ');
+ const LB=['القائم بالعمل','إمضاء القائم بالعمل','العميل','عمارة','شارع','الدور','شقة','مجموعة','علامة مميزة','بوابة','الموبايل','موبايل 2','تليفون المنزل','نوع الطلب','رقم الطلب','رقم أمر التشغيل','التاريخ المتفق عليه','المسافة من المركز للموقع بالمتر'].map(sp);
+ const STOP=['قيمة الخدمات','قيمة قطع الغيار','قيمة الخامات'].map(sp);
+ const valI=lab=>{const L=sp(lab);for(const r of rows){const k=r.i.findIndex(e=>sp(e.s)===L);if(k<0)continue;const o=[];
+   for(let j=k+1;j<r.i.length;j++){if(LB.includes(sp(r.i[j].s)))break;o.push(r.i[j])}if(o.length)return o}return[]};
+ const belowI=lab=>{const L=sp(lab);for(let n=rows.length-2;n>=0;n--){const h=rows[n].i,k=h.findIndex(e=>sp(e.s)===L);if(k<0)continue;
+   const e=h[k],hi=k>0?(h[k-1].x+e.x)/2:1e9,lo=k<h.length-1?(h[k+1].x+e.x)/2:-1e9,o=[];
+   for(let q=n+1;q<=n+2&&q<rows.length;q++){if(rows[q].i.some(z=>STOP.includes(sp(z.s))))break;o.push(...rows[q].i.filter(z=>z.x<=hi&&z.x>=lo))}
+   if(o.length)return o}return[]};
+ const fx=async o=>{const z=tx(o);if(!o.length||!GARB.test(z))return z;try{return(await ocr(PG[o[0].pg],o))||z}catch(x){console.warn('OCR',x);return z}};
+ const id=p=>{const a=t.match(new RegExp(p+'\\s*(\\d{6,})'))||t.match(new RegExp('(\\d{6,})\\s*'+p));return a?p+a[1]:''};
+ const dv=tx(valI('التاريخ المتفق عليه'))||t,d=dv.match(/(\d{4}-\d{2}-\d{2})/)?.[1]||m(/(\d{4}-\d{2}-\d{2})/),tm=(dv.match(/(\d{1,2}:\d{2})/)||t.match(/(\d{1,2}:\d{2})/)||[])[1],ap=(dv.match(/\b(AM|PM)\b/)||t.match(/\b(AM|PM)\b/)||[])[1];let v='';
+ if(d&&tm){let[h,mi]=tm.split(':').map(Number);if(ap==='PM'&&h<12)h+=12;if(ap==='AM'&&h===12)h=0;v=`${d}T${String(h).padStart(2,'0')}:${String(mi).padStart(2,'0')}`}
+ const ph=[...new Set(t.match(/01[0-25]\d{8}/g)||[])],pn=l=>(tx(valI(l)).match(/01[0-25]\d{8}/)||[''])[0];
+ const A={};for(const l of ['العميل','شارع','عمارة','الدور','شقة','علامة مميزة'])A[l]=await fx(valI(l));
+ const addr=[A['شارع'],A['عمارة']&&'عمارة '+A['عمارة'],A['الدور']&&'دور '+A['الدور'],A['شقة']&&'شقة '+A['شقة'],A['علامة مميزة']].filter(Boolean).join(' - ');
+ const cn=(await fx(valI('القائم بالعمل')))||m(/القائم بالعمل\s+(.+?)\s+إمضاء القائم بالعمل/),pr=await fx(belowI('المنتج'));
+ return{swo:id('SWO'),svr:id('SVR'),order_type:(tx(valI('نوع الطلب'))||m(/طلب\s+(تركيب|صيانة|معاينة|تسليم|استبدال)/)).replace(/^طلب\s+/,''),visit_at:v,
+  customer_code:id('CST'),customer_name:(A['العميل'].replace(/(CST\d+|\d+CST)/,'').replace(/^[\s-]+/,'').trim())||m(/(?:CST\d+|\d+CST)\s*-\s*(.+?)\s+بيانات العميل/),
+  phone1:pn('الموبايل')||ph[0]||'',phone2:pn('موبايل 2')||ph[1]||'',address:addr,product:pr.replace(/\s*-\s*وحدة\s*$/,''),
+  distance_m:m(/بالمتر\s*(\d+)/)||m(/(\d+)\s*المسافة/),center_name:cn,_raw:raw}}
+async function readF(fl){$('#r').innerHTML='<p>⏳ جاري قراءة الملفات... أول مرة بيحمّل قاموس العربي وممكن ياخد دقيقة</p>';for(const f of fl){const d=await parse(f);resolve(d);rows.push({f,d})}drawR()}
+function drawR(){const ok=new Set(profiles.filter(p=>p.approved).map(p=>p.center_norm));
+ $('#r').innerHTML=rows.map((r,i)=>`<div class="card"><b>${esc(r.f.name)}</b> <span id="s${i}"></span><div style="margin:4px 0">${esc(r.d._m||'')}</div><div class="g">${F.concat([['tech_name','الفني (اختياري)']]).map(([k,l,ty])=>
+ `<div><label>${l}</label><input data-i="${i}" data-k="${k}" type="${ty||'text'}"${k==='center_name'?' list="cdl"':k==='tech_name'?' list="tdl"':''} value="${esc(r.d[k])}"></div>`).join('')}</div><div style="margin-top:8px"><label>قطع الغيار المطلوبة في الزيارة الأولى (اختياري) — سطر لكل قطعة: الاسم | الكود | الكمية</label><textarea data-i="${i}" data-k="_parts" placeholder="مثال: كارت الشاشة | 55A12 | 1"></textarea></div>
+ ${ok.has(norm(r.d.center_name))?'':'<div class="red">⚠ المركز ده مش مسجل لسه (الأمر هيتحفظ وهيظهر للمركز بعد تسجيله وموافقتك)</div>'}<details><summary>النص الخام المستخرج (للمساعدة)</summary><pre style="white-space:pre-wrap;direction:ltr;font-size:11px">${esc(r.d._raw)}</pre></details></div>`).join('')+
+ (rows.length?'<button class="p" onclick="saveAll()">راجعت البيانات — حفظ الكل</button>':'')}
+async function saveAll(){if(me.role!=='admin')return;for(let i=0;i<rows.length;i++){const o={};document.querySelectorAll(`[data-i="${i}"]`).forEach(e=>o[e.dataset.k]=e.value.trim());
+ const id=crypto.randomUUID(),s=$('#s'+i),pt=o._parts||'';delete o._parts;o.id=id;o.center_norm=norm(o.center_name);{const tk=techs.find(t=>t.center_norm===o.center_norm&&norm(t.name)===norm(o.tech_name||''));o.tech_id=tk?tk.id:null;o.tech_name=o.tech_name||null}o.pdf_path=`${id}/order.pdf`;
+ o.visit_at=o.visit_at?new Date(o.visit_at).toISOString():null;o.distance_m=o.distance_m?+o.distance_m:null;
+ const a=await sb.from('orders').insert(o);if(a.error){s.innerHTML='<span class="red">'+(a.error.code==='23505'?'الأمر موجود قبل كده':a.error.message)+'</span>';continue}
+ await addParts(id,1,pt);const b=await sb.storage.from('pdfs').upload(o.pdf_path,rows[i].f,{contentType:'application/pdf'});
+ s.textContent=b.error?'اتحفظ بدون الـ PDF: '+b.error.message:'✅ اتحفظ'}await load()}
+function vCn(){const ok=new Set(profiles.filter(p=>p.approved).map(p=>p.center_norm)),un=[...new Set(orders.filter(o=>!ok.has(o.center_norm)).map(o=>o.center_name))];
+ $('#v').innerHTML=`<div class="card"><b>إضافة مراكز من Excel</b><p>الأعمدة بالترتيب: اسم المركز | الإيميل | الباسورد (6 حروف على الأقل)</p><button onclick="tpl()">تنزيل نموذج</button> <input type="file" accept=".xlsx,.xls,.csv" onchange="impC(this.files)"><div id="cl"></div></div>${techCard()}${adminCard()}<div class="card"><b>طلبات تسجيل بانتظار الموافقة</b>${profiles.filter(p=>!p.approved).map(p=>`<p>${esc(p.center_name)} — ${esc(p.email)} <button class="p" onclick="appr('${p.id}')">موافقة</button></p>`).join('')||'<p>لا يوجد.</p>'}</div>
+<div class="card"><b>مراكز عليها أوامر ومش مسجلة</b><p>${un.map(esc).join(' | ')||'—'}</p></div>
+${centerCard()}`}
+async function appr(id){if(me.role!=='admin')return;await sb.from('profiles').update({approved:true}).eq('id',id);await load();vCn()}
+/* ---- Excel ---- */
+const wait=ms=>new Promise(z=>setTimeout(z,ms));
+function tpl(){const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['اسم المركز','الإيميل','الباسورد'],['مركز المثال','center1@example.com','123456']]),'المراكز');XLSX.writeFile(wb,'centers-template.xlsx')}
+async function impC(fl){if(me.role!=='admin')return;const f=fl[0];if(!f)return;const wb=XLSX.read(await f.arrayBuffer()),
+ A=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:''}).filter(r=>String(r[1]).includes('@')),L=$('#cl');L.innerHTML='جاري الإضافة... (ما تقفلش الصفحة)';
+ const c2=supabase.createClient(SB_URL,SB_KEY,{auth:{storageKey:'sb-tmp',persistSession:false,autoRefreshToken:false,detectSessionInUrl:false}});let ok=0;
+ for(const r of A){const n=String(r[0]).trim(),e=String(r[1]).trim().toLowerCase(),p=String(r[2]).trim();let msg='';
+  if(!n||p.length<6)msg='❌ اسم المركز ناقص أو الباسورد أقل من 6';
+  else for(let t=0;t<5;t++){const x=await c2.auth.signUp({email:e,password:p,options:{data:{center_name:n}}});
+   if(x.error&&/rate|seconds|too many/i.test(x.error.message)){msg='⏳ الخادم طلب انتظار';await wait(30000);continue}
+   if(x.error){msg=/already/i.test(x.error.message)?'⚠ الإيميل موجود قبل كده':'❌ '+x.error.message;break}
+   const u=await sb.from('profiles').update({approved:true}).eq('id',x.data.user.id);msg=u.error?'❌ '+u.error.message:'✅ تمت الإضافة';if(!u.error)ok++;break}
+  L.innerHTML+=`<div>${esc(n)} — ${esc(e)}: ${msg}</div>`;await wait(400)}
+ L.innerHTML+=`<b>خلص: اتضاف ${ok} من ${A.length}</b>`;await load()}
+function expX(L,LG){if(me.role!=='admin')return;const fe=x=>x?new Date(x).toLocaleString('en-GB',{hour12:false}).replace(',',''):'';
+ const R=(L||filt()).map(o=>({'أمر التشغيل':o.swo,'رقم الطلب':o.svr,'نوع الطلب':o.order_type,'الموعد':fe(o.visit_at),'متأخر':late(o)?'نعم':'لا','العميل':o.customer_name,'كود العميل':o.customer_code,'موبايل':o.phone1,'موبايل 2':o.phone2,'العنوان':o.address,'المنتج':o.product,'المسافة (م)':o.distance_m,'المركز':o.center_name,'الفني':o.tech_name,'الحالة':o.status,'سبب الاستكمال':o.reason,'قطع الغيار':parts.filter(p=>p.order_id===o.id).map(p=>'زيارة '+p.visit_no+': '+p.part_name+(p.part_code?' ('+p.part_code+')':'')+' ×'+p.qty).join(' | '),'روابط الصور':allPh.filter(p=>p.order_id===o.id&&p.url).map(p=>p.url).join('\n'),'التقرير الفني':o.tech_report,'تاريخ الرفع':fe(o.created_at)}));
+ const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(R),'البلاغات');if(LG&&LG.length)XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(LG),'السجل');wb.Workbook={Views:[{RTL:true}]};
+ XLSX.writeFile(wb,'orders-'+new Date().toISOString().slice(0,10)+'.xlsx')}
+/* ---- v2: تعديل / تأجيل / سجل / إحصائيات / باسورد ---- */
+const POST=o=>o.status==='تم الانتهاء'?'':`<div class="card"><b>تأجيل الموعد</b><p><input type="datetime-local" id="nd"> <input id="nr" placeholder="سبب التأجيل (إجباري)"> <button onclick="postp('${o.id}')">تأجيل</button> <span id="pm" class="red"></span></p></div>`;
+const EDIT=o=>`<div class="card"><b>تعديل البيانات (أدمن)</b><div class="g">${F.map(([k,l,ty])=>`<div><label>${l}</label><input data-e="${k}" type="${ty||'text'}" value="${esc(ty?tl(o[k]):o[k])}"></div>`).join('')}</div><p><button class="p" onclick="editO('${o.id}')">حفظ التعديلات</button> <button onclick="delO('${o.id}')" style="color:#d93025">حذف البلاغ</button> <span id="em" class="red"></span></p></div>`;
+const LOG=l=>`<div class="card"><b>سجل التغييرات</b>${(l||[]).map(x=>`<div style="font-size:13px;margin-top:4px">${fd(x.at)} · ${esc(x.by_email)} · <b>${esc(x.action)}</b> ${esc(x.detail)}</div>`).join('')||'<p>—</p>'}</div>`;
+async function postp(id){const v=$('#nd').value,r=$('#nr').value.trim();if(!v||!r)return $('#pm').textContent='اختار الموعد الجديد واكتب السبب';
+ const{error}=await sb.from('orders').update({visit_at:new Date(v).toISOString(),postpone_reason:r}).eq('id',id);if(error)return $('#pm').textContent=error.message;await load();$('#m').style.display='none';go('list')}
+async function editO(id){if(me.role!=='admin')return;const o={};document.querySelectorAll('[data-e]').forEach(e=>o[e.dataset.e]=e.value.trim());
+ o.center_norm=norm(o.center_name);const cur=orders.find(x=>x.id===id);if(cur&&cur.center_norm!==o.center_norm){o.tech_id=null;o.tech_name=null}o.visit_at=o.visit_at?new Date(o.visit_at).toISOString():null;o.distance_m=o.distance_m?+o.distance_m:null;
+ const{error}=await sb.from('orders').update(o).eq('id',id);if(error)return $('#em').textContent=error.message;await load();openO(id)}
+async function delO(id){if(me.role!=='admin'||!confirm('متأكد من حذف البلاغ نهائياً؟'))return;const{error}=await sb.from('orders').delete().eq('id',id);if(error)return alert(error.message);$('#m').style.display='none';await load();go('list')}
+async function vStats(){$('#v').innerHTML='جاري الحساب...';
+ const{data:lg}=await sb.from('order_log').select('order_id,at').eq('action','تغيير الحالة').like('detail','%← تم الانتهاء'),done={};(lg||[]).forEach(x=>done[x.order_id]=x.at);const by={};
+ orders.forEach(o=>{const k=o.center_norm||'—',b=by[k]=by[k]||{c:o.center_name||'—',t:0,n:0,d:0,u:0,l:0,w:0,p:0,s:0,k:0};b.t++;
+  if(o.status==='تم الانتهاء'){b.d++;if(done[o.id]){b.s+=(new Date(done[o.id])-new Date(o.created_at))/864e5;b.k++}}else if(o.status==='له استكمال')b.u++;else b.n++;
+  if(late(o))b.l++;if(soon(o))b.w++;if(o.visit_orig)b.p++});
+ const R=Object.values(by).sort((a,b)=>b.l-a.l||b.t-a.t),T=k=>R.reduce((a,b)=>a+b[k],0);
+ const{data:u}=await sb.rpc('storage_usage'),mb=x=>Math.round(x/1048576),
+ bar=(n,v,l)=>`<div style="margin-top:6px">${n}: ${mb(v)} / ${l} ميجا ${mb(v)>l*.8?'<b class="red">⚠ قرّب يخلص</b>':''}<div style="background:var(--b);border-radius:6px;height:8px"><div style="width:${Math.min(100,mb(v)/l*100)}%;height:8px;border-radius:6px;background:${mb(v)>l*.8?'var(--rb)':'var(--p)'}"></div></div></div>`,
+ U=`<div class="card"><b>💾 المساحة (الخطة المجانية)</b>${u?bar('الصور والملفات',u.files,1024)+bar('قاعدة البيانات (تقريبي)',u.db,500):'<p>شغّل schema_v2.sql عشان تظهر المساحة</p>'}
+ <p><b>🧹 أرشفة الصور القديمة:</b> بلاغات «تم الانتهاء» أقدم من <input id="cd" type="number" value="60" style="width:70px"> يوم <button onclick="cleanup()">تحميل ZIP ثم مسح</button></p><div id="cm"></div></div>`;
+ $('#v').innerHTML=`${U}<div class="card"><b>الإجمالي:</b> ${T('t')} بلاغ · جديد ${T('n')} · منتهي ${T('d')} · له استكمال ${T('u')} · <span class="red">متأخر ${T('l')}</span> · قريب ${T('w')} · مؤجل ${T('p')}</div>
+<div class="card" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;text-align:center"><tr><th>المركز</th><th>الكل</th><th>جديد</th><th>منتهي</th><th>له استكمال</th><th>متأخر</th><th>قريب</th><th>مؤجل</th><th>متوسط الإنجاز (يوم)</th></tr>${R.map(b=>`<tr style="border-top:1px solid var(--b)${b.l?';background:var(--r)':''}"><td>${esc(b.c)}</td><td>${b.t}</td><td>${b.n}</td><td>${b.d}</td><td>${b.u}</td><td>${b.l}</td><td>${b.w}</td><td>${b.p}</td><td>${b.k?(b.s/b.k).toFixed(1):'-'}</td></tr>`).join('')}</table></div>`}
+sb.auth.onAuthStateChange(ev=>{if(ev==='PASSWORD_RECOVERY')setTimeout(chPw,600)});
+async function chPw(){const p=prompt('اكتب الباسورد الجديد (6 حروف على الأقل):');if(!p)return;if(p.length<6)return alert('الباسورد أقل من 6 حروف');const{error}=await sb.auth.updateUser({password:p});alert(error?error.message:'تم تغيير الباسورد ✅')}
+async function forgot(){const e=$('#e').value.trim();if(!e)return $('#er').textContent='اكتب الإيميل في الخانة الأول';const{error}=await sb.auth.resetPasswordForEmail(e,{redirectTo:location.origin});$('#er').textContent=error?error.message:'اتبعت رابط تغيير الباسورد على الإيميل'}
+/* ---- قطع الغيار ---- */
+async function addParts(oid,v,t){const A=String(t||'').split('\n').map(l=>l.split('|').map(x=>x.trim())).filter(r=>r[0]).map(r=>({order_id:oid,visit_no:v,part_name:r[0],part_code:r[1]||'',qty:+r[2]||1}));if(A.length)return sb.from('order_parts').insert(A)}
+const PARTS=(o,ad)=>{const L=parts.filter(p=>p.order_id===o.id).sort((a,b)=>a.visit_no-b.visit_no);if(!L.length&&!ad)return'';
+ return `<div class="card"><b>🔧 قطع الغيار</b>${L.map(p=>`<div style="margin-top:4px">زيارة ${p.visit_no}: ${esc(p.part_name)}${p.part_code?' ('+esc(p.part_code)+')':''} × ${p.qty}${ad?` <button onclick="delP('${p.id}','${o.id}')">✕</button>`:''}</div>`).join('')||'<p>لا يوجد.</p>'}
+ ${ad?`<p><select id="pv">${[1,2,3,4,5].map(n=>`<option value="${n}">زيارة ${n}</option>`).join('')}</select> <input id="pn" placeholder="اسم القطعة"> <input id="pc" placeholder="الكود (اختياري)" size="10"> <input id="pq" type="number" min="1" value="1" style="width:70px"> <button class="p" onclick="addP('${o.id}')">إضافة</button></p>`:''}</div>`};
+async function addP(oid){if(me.role!=='admin')return;const n=$('#pn').value.trim();if(!n)return;
+ const{error}=await sb.from('order_parts').insert({order_id:oid,visit_no:+$('#pv').value,part_name:n,part_code:$('#pc').value.trim(),qty:+$('#pq').value||1});if(error)return alert(error.message);await load();openO(oid)}
+async function delP(id,oid){if(me.role!=='admin')return;await sb.from('order_parts').delete().eq('id',id);await load();openO(oid)}
+/* ---- فنيين المراكز ---- */
+let TC=[],WARN='';
+const techCard=()=>{const m={};profiles.filter(p=>p.approved&&p.role!=='admin').forEach(p=>m[p.center_norm]=p.center_name);
+ orders.forEach(o=>{if(o.center_norm&&!m[o.center_norm])m[o.center_norm]=o.center_name});techs.forEach(t=>{if(!m[t.center_norm])m[t.center_norm]=t.center_name});
+ TC=Object.entries(m).sort((a,b)=>a[1].localeCompare(b[1],'ar'));
+ return `<div class="card"><b>👷 فنيين المراكز</b><p>الأعمدة بالترتيب: اسم المركز | اسم الفني | الموبايل (اختياري)</p><button onclick="tplT()">تنزيل نموذج</button> <input type="file" accept=".xlsx,.xls,.csv" onchange="impT(this.files)"> <span id="tl"></span>
+ <p><select id="tc">${TC.map(([n,c],i)=>`<option value="${i}">${esc(c)}</option>`).join('')}</select> <input id="tn" placeholder="اسم الفني"> <input id="tp" placeholder="الموبايل (اختياري)" size="12"> <button class="p" onclick="addT()">إضافة فني</button></p>
+ ${TC.map(([n,c])=>{const L=techs.filter(t=>t.center_norm===n);return L.length?`<div style="margin-top:6px"><b>${esc(c)}</b>: ${L.map(t=>esc(t.name)+(t.phone?' ('+esc(t.phone)+')':'')+` <button onclick="delT('${t.id}')">✕</button>`).join(' · ')}</div>`:''}).join('')}</div>`};
+function tplT(){const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['اسم المركز','اسم الفني','الموبايل'],['مركز المثال','أحمد علي','01000000000']]),'الفنيين');XLSX.writeFile(wb,'technicians-template.xlsx')}
+async function impT(fl){if(me.role!=='admin')return;const f=fl[0];if(!f)return;const wb=XLSX.read(await f.arrayBuffer()),
+ R=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:''}).filter(r=>String(r[0]).trim()&&String(r[1]).trim()&&String(r[0]).trim()!=='اسم المركز'),
+ seen=new Set(techs.map(t=>t.center_norm+'|'+norm(t.name))),A=[];
+ R.forEach(r=>{const c=String(r[0]).trim(),n=String(r[1]).trim(),k=norm(c)+'|'+norm(n);if(seen.has(k))return;seen.add(k);A.push({center_name:c,center_norm:norm(c),name:n,phone:String(r[2]).trim()})});
+ if(!A.length)return $('#tl').textContent='مفيش فنيين جدد في الشيت';
+ const{error}=await sb.from('technicians').insert(A);if(error)return $('#tl').textContent=error.message;await load();vCn();$('#tl').textContent='✅ اتضاف '+A.length+' فني'}
+async function addT(){if(me.role!=='admin')return;const n=$('#tn').value.trim();if(!n||!TC.length)return;const[cn,c]=TC[$('#tc').value];
+ const{error}=await sb.from('technicians').insert({center_name:c,center_norm:cn,name:n,phone:$('#tp').value.trim()});if(error)return alert(error.message);await load();vCn()}
+async function delT(id){if(me.role!=='admin'||!confirm('حذف الفني؟'))return;await sb.from('technicians').delete().eq('id',id);await load();vCn()}
+const TECH=o=>{const L=techs.filter(t=>t.center_norm===o.center_norm);return `<div class="card"><b>👷 الفني</b> <select id="tsel"><option value="">— بدون —</option>${L.map(t=>`<option value="${t.id}" ${t.id===o.tech_id?'selected':''}>${esc(t.name)}</option>`).join('')}</select> <button onclick="setT('${o.id}')">حفظ</button> ${L.length?'':'<span class="warn">لا يوجد فنيين مسجلين لهذا المركز</span>'}</div>`};
+async function setT(id){if(me.role!=='admin')return;const v=$('#tsel').value,t=techs.find(x=>x.id===v);
+ const{error}=await sb.from('orders').update({tech_id:v||null,tech_name:t?t.name:null}).eq('id',id);if(error)return alert(error.message);await load();openO(id)}
+/* ---- أرشفة الصور ---- */
+async function cleanup(){if(me.role!=='admin')return;const m=$('#cm'),d=+$('#cd').value||60,lim=new Date(Date.now()-d*864e5),
+ ids=orders.filter(o=>o.status==='تم الانتهاء'&&new Date(o.created_at)<lim).map(o=>o.id);if(!ids.length)return m.textContent='مفيش بلاغات منتهية أقدم من كده';
+ const{data}=await sb.from('photos').select('*').in('order_id',ids),ph=(data||[]).filter(p=>p.path).slice(0,300);if(!ph.length)return m.textContent='مفيش صور للأرشفة';
+ if(!confirm('هنحمّل '+ph.length+' صورة في ملف ZIP الأول، وبعدين تقرر تمسحها من الموقع. كمّل؟'))return;
+ const z=new JSZip();let n=0;
+ for(const p of ph){const{data:b,error}=await sb.storage.from('photos').download(p.path);if(error)return m.textContent='فشل التحميل: '+error.message;
+  const o=orders.find(x=>x.id===p.order_id);z.file((o?o.swo:p.order_id)+'/'+p.path.split('/').pop(),b);m.textContent='تحميل '+(++n)+' / '+ph.length}
+ const a=document.createElement('a');a.href=URL.createObjectURL(await z.generateAsync({type:'blob'}));a.download='photos-archive-'+new Date().toISOString().slice(0,10)+'.zip';a.click();
+ if(!confirm('اتأكد إن ملف الـ ZIP اتحمّل وبيتفتح سليم، وبعدها اضغط OK للمسح النهائي من الموقع.'))return m.textContent='اتحمّل الـ ZIP ومفيش مسح.';
+ const{error:e1}=await sb.storage.from('photos').remove(ph.map(p=>p.path));if(e1)return m.textContent=e1.message;
+ await sb.from('photos').delete().in('id',ph.map(p=>p.id));m.textContent='✅ اتمسح '+ph.length+' صورة. لو لسه فيه صور أقدم كرر العملية.'}
+/* ---- روابط الصور ---- */
+async function addL(id){const T=$('#lk').value.split(/\s+/).map(x=>x.trim()).filter(Boolean),m=$('#lm');if(!T.length)return;
+ if(T.some(u=>!/^https?:\/\/\S+$/i.test(u)))return m.textContent='كل رابط لازم يبدأ بـ http أو https';
+ const{count}=await sb.from('photos').select('id',{count:'exact',head:true}).eq('order_id',id);if((count||0)+T.length>8)return m.textContent='الحد الأقصى 8 روابط للبلاغ';
+ draft={id,tr:$('#tr').value,ss:$('#ss').value,rs:$('#rs').value};
+ const{error}=await sb.from('photos').insert(T.map(u=>({order_id:id,url:u})));if(error){draft=null;return m.textContent=error.message}await load();openO(id)}
+async function delL(pid,id){if(!confirm('حذف الرابط؟'))return;draft={id,tr:$('#tr').value,ss:$('#ss').value,rs:$('#rs').value};await sb.from('photos').delete().eq('id',pid);await load();openO(id)}
+/* ---- مطابقة «القائم بالعمل» (مركز أو فني) ---- */
+const nk=t=>norm(String(t||'').normalize('NFKC').replace(/[\u064B-\u065F\u0640]/g,'')).replace(/[^\u0600-\u06FFa-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+const rv=w=>[...w].reverse().join(''),variants=t=>{const w=t.split(/\s+/);return[t,[...w].reverse().join(' '),w.map(rv).join(' '),w.map(rv).reverse().join(' ')]};
+const bg=x=>{x=x.replace(/ /g,'');const o=[];for(let i=0;i<x.length-1;i++)o.push(x.slice(i,i+2));return o};
+const dice=(a,b)=>{const A=bg(a),B=bg(b);if(!A.length||!B.length)return 0;const m={};B.forEach(x=>m[x]=(m[x]||0)+1);let i=0;A.forEach(x=>{if(m[x]>0){i++;m[x]--}});return 2*i/(A.length+B.length)};
+const sc=(a,b)=>{const A=new Set(a.split(' ').filter(Boolean)),B=new Set(b.split(' ').filter(Boolean));let i=0;A.forEach(w=>{if(B.has(w))i++});return Math.max(A.size&&B.size?i/Math.max(A.size,B.size):0,dice(a,b))};
+const regCenters=()=>{const m={};profiles.filter(p=>p.approved&&p.role!=='admin').forEach(p=>m[p.center_norm]=p.center_name);techs.forEach(t=>{if(!m[t.center_norm])m[t.center_norm]=t.center_name});return Object.entries(m)};
+function resolve(d){const raw=(d.center_name||'').trim();if(!raw){d._m='⚠ مفيش «القائم بالعمل» في الأمر — اختار المركز يدوي';return}
+ const V=variants(raw).map(nk),sco=q=>Math.max(...V.map(z=>sc(z,nk(q)))),pct=x=>Math.round(x*100)+'%',
+ C=[...regCenters().map(([n,c])=>({k:'c',n:c,c,s:sco(c)})),...techs.map(t=>({k:'t',n:t.name,c:t.center_name,s:sco(t.name)}))].sort((p,q)=>q.s-p.s),a=C[0],b=C[1]||{s:0};
+ if(a&&a.s>=.75&&a.s-b.s>=.05){d.center_name=a.c;if(a.k==='t'){d.tech_name=a.n;d._m=`👷 «${raw}» ← الفني «${a.n}» (${pct(a.s)}) ← مركز «${a.c}»`}else d._m=`🏢 «${raw}» ← المركز «${a.c}» (${pct(a.s)})`}
+ else d._m=`⚠ «${raw}» غير مؤكد — الأقرب: ${C.slice(0,3).map(x=>(x.k==='t'?'👷 ':'🏢 ')+x.n+' ('+pct(x.s)+')').join('، ')||'—'} — اختار يدوي`}
+/* ---- أدمن + حذف مركز ---- */
+let CL=[];
+const adminCard=()=>`<div class="card"><b>👑 الأدمن</b><p style="font-size:13px">الأدمن الجديد بيكون له <b>نفس صلاحياتك بالكامل</b>: رفع الأوامر، المراكز، الفنيين، التعديل والحذف، وإضافة أو إزالة أدمن تاني.</p>${profiles.filter(p=>p.role==='admin'&&p.approved).map(p=>`<div style="margin-top:4px">${esc(p.email)}${p.id===me.id?' (أنت)':` <button onclick="demote('${p.id}')">إزالة الصلاحية</button>`}</div>`).join('')}
+<p><input id="ae" type="email" placeholder="إيميل الأدمن الجديد"> <input id="ap" placeholder="الباسورد (6 حروف على الأقل)"> <button class="p" onclick="addAdmin()">إضافة أدمن</button> <span id="am" class="red"></span></p></div>`;
+async function addAdmin(){if(me.role!=='admin')return;const e=$('#ae').value.trim().toLowerCase(),p=$('#ap').value.trim(),m=$('#am');if(!e.includes('@')||p.length<6)return m.textContent='اكتب إيميل صحيح وباسورد 6 حروف على الأقل';
+ const c2=supabase.createClient(SB_URL,SB_KEY,{auth:{storageKey:'sb-tmp',persistSession:false,autoRefreshToken:false,detectSessionInUrl:false}}),x=await c2.auth.signUp({email:e,password:p,options:{data:{center_name:'أدمن'}}});
+ let id=x.data&&x.data.user&&x.data.user.id;
+ if(x.error){const ex=profiles.find(q=>(q.email||'').toLowerCase()===e);if(/already/i.test(x.error.message)&&ex&&confirm('الإيميل ده مسجل قبل كده. تحوّله لأدمن (من غير تغيير الباسورد)؟'))id=ex.id;else return m.textContent=/already/i.test(x.error.message)?'الإيميل ده مسجل قبل كده':x.error.message}
+ const{error}=await sb.from('profiles').update({role:'admin',approved:true}).eq('id',id);if(error)return m.textContent=error.message;await load();vCn()}
+async function demote(id){if(me.role!=='admin'||id===me.id||!confirm('إزالة صلاحية الأدمن من الحساب ده؟ (هيتحول لطلب مركز بانتظار الموافقة)'))return;await sb.from('profiles').update({role:'center',approved:false}).eq('id',id);await load();vCn()}
+const centerCard=()=>{CL=TC;return `<div class="card"><b>المراكز (${CL.length})</b>${CL.map(([n,c],i)=>{const em=profiles.filter(p=>p.center_norm===n&&p.role!=='admin').map(p=>p.email).join(', ');
+ return `<div style="margin-top:6px"><b>${esc(c)}</b> ${em?esc(em):'<span class="warn">(غير مسجل)</span>'} · ${orders.filter(o=>o.center_norm===n).length} بلاغ <button onclick="delC(${i})">🗑 حذف</button></div>`}).join('')}</div>`};
+async function delC(i){if(me.role!=='admin')return;const[n,c]=CL[i];if(!confirm('حذف المركز «'+c+'» وحسابه وفنييه؟'))return;
+ const ob=confirm('تحذف كمان كل بلاغات المركز ده؟\nOK = احذف البلاغات نهائياً\nCancel = سيب البلاغات (هتظهر "مركز غير مسجل")');
+ const{error}=await sb.rpc('delete_center',{p_norm:n,p_delete_orders:ob});if(error)return alert(error.message);await load();vCn()}
+/* ---- سحب المغلق ثم مسحه ---- */
+async function purge(){if(me.role!=='admin')return;const d=+$('#dd').value||0,lim=new Date(Date.now()-d*864e5),
+ L=orders.filter(o=>o.status==='تم الانتهاء'&&new Date(o.created_at)<=lim);
+ if(!L.length)return alert('مفيش بلاغات مغلقة (تم الانتهاء)'+(d?' أقدم من '+d+' يوم':''));
+ if(!confirm('هنسحب '+L.length+' بلاغ مغلق في ملف Excel (مع السجل والروابط وقطع الغيار)، وبعدها تقرري تمسحيهم من Supabase. كمّلي؟'))return;
+ const ch=(a,n)=>Array.from({length:Math.ceil(a.length/n)},(_,i)=>a.slice(i*n,i*n+n)),ids=L.map(o=>o.id),sw={};L.forEach(o=>sw[o.id]=o.swo);const LG=[],paths=[];
+ for(const c of ch(ids,50)){const a=await sb.from('order_log').select('*').in('order_id',c).order('at');
+  (a.data||[]).forEach(x=>LG.push({'أمر التشغيل':sw[x.order_id],'الوقت':new Date(x.at).toLocaleString('en-GB',{hour12:false}),'بواسطة':x.by_email,'الإجراء':x.action,'التفاصيل':x.detail}));
+  const b=await sb.from('photos').select('path').in('order_id',c);(b.data||[]).forEach(p=>p.path&&paths.push(['photos',p.path]))}
+ L.forEach(o=>o.pdf_path&&paths.push(['pdfs',o.pdf_path]));
+ expX(L,LG);
+ if(!confirm('اتحمّل ملف Excel فيه '+L.length+' بلاغ.\nافتحيه وتأكدي إنه سليم، وبعدها اضغطي OK للمسح النهائي من Supabase (البلاغات + الروابط + ملفات الـ PDF). مفيش رجوع.'))return;
+ for(const bk of ['pdfs','photos']){const P=paths.filter(x=>x[0]===bk).map(x=>x[1]);for(const c of ch(P,50)){const{error}=await sb.storage.from(bk).remove(c);if(error)return alert('فشل مسح الملفات: '+error.message+'\nما اتمسحش أي بلاغ.')}}
+ for(const c of ch(ids,50)){const{error}=await sb.from('orders').delete().in('id',c);if(error)return alert('فشل مسح البلاغات: '+error.message)}
+ await load();WARN='';go('list');alert('✅ اتمسح '+L.length+' بلاغ مغلق')}
+init();
+</script></body></html>
